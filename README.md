@@ -52,7 +52,7 @@ The whole idea is to have a single Jenkins job which executes periodically, chec
 - `-DdryRun` Pass this flag with any value and it won't make any changes to Jenkins (preview mode). It is recommended to use dry run until everything is set up correctly. (optional)
 - `-DtemplateJobPrefix` Prefix name of template jobs to use
 - `-DjobPrefix` Prefix name of project jobs to create
-- `-DcreateJobInView` If you want the script to create the job in a view provide the view name here. It also supports nested views, just separate them with a slash '/', ex. *view/nestedview*
+- `-DcreateJobInView` If you want the script to create the job in a view provide the view name here. It also supports nested views, just separate them with a slash '/', ex. *view/nestedview*. Can be used also for personal views.
 - `-DnoDelete` pass this flag with *true* value to avoid removing obsolete jobs (with no corresponding git branch) (optional)
 
 Sample parameters configuration:
@@ -74,6 +74,14 @@ Notes on configuring your template:
 - Git repository URL is going to be replaced by the script (with the project Git URL set in sync job parameters)
 - Branch to build is going to be determined and set by the script
 - If you use Sonar and want to have Sonar builds separated for each branch type, just add Sonar capability to your template and the Sonar branch option will be determined and set by the script
+- In the template these variables are substituted:
+  * ${gitflow.jobName}: full name of the created job
+  * ${gitflow.branchName}: name of the branch that will be used by the created job
+  * ${gitflow.templateBranchName}: name of the template used to create the job
+  * ${gitflow.issueId}: issued ID number, if present at end of branch name (feature and hotfix branches only); can be used to create hyperlinks to issue management from job description
+  * ${gitflow.releaseVersion}: version number, if present at end of branch name (relase branches only): can be used to create hyperlinks to issue management frm job description
+  * ${gitflow.buildJobName}: full name of build job (*jobName* replaced with **build**); can be used to create hyperlinks in job description (for deploy jobs)
+  * ${gitflow.deployJobName}: full name of deploy job (*jobName* replaced with **deploy**); can be used to create hyperlinks in job description (for build jobs)
 
 [Jenkins Build Per Branch]:http://entagen.github.io/jenkins-build-per-branch/
 [GitHub flow]:http://scottchacon.com/2011/08/31/github-flow.html

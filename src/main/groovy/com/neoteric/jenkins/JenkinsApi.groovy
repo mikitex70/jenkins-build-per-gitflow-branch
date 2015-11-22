@@ -57,7 +57,7 @@ class JenkinsApi {
 
 	void cloneJobForBranch(String jobPrefix, ConcreteJob missingJob, String createJobInView, String gitUrl) {
 		String createJobInViewPath = resolveViewPath(createJobInView)
-		println "-----> createInView after" + createJobInView
+		println "-----> createInView after " + createJobInViewPath
 		String missingJobConfig = configForMissingJob(missingJob, gitUrl)
 		TemplateJob templateJob = missingJob.templateJob
 
@@ -78,36 +78,49 @@ class JenkinsApi {
 			return ""
 		}
 		List<String> elements = createInView.tokenize("/")
+		String prefix = "";
+		if (elements[0]=="user") {
+                    prefix = elements[0..2].join("/")+"/";
+                    elements = elements.drop(4);
+		}
+
 		elements = elements.collect { "view/" + it + "/" }
-		elements.join();
+                prefix+elements.join();
 	}
 
 	String configForMissingJob(ConcreteJob missingJob, String gitUrl) {
 		TemplateJob templateJob = missingJob.templateJob
 		String config = getJobConfig(templateJob.jobName)
-		return processConfig(config, missingJob.branchName, gitUrl)
+		return processConfig(config, missingJob, gitUrl)
 	}
 
-	public String processConfig(String entryConfig, String branchName, String gitUrl) {
-		def root = new XmlParser().parseText(entryConfig)
-		// update branch name
-		root.scm.branches."hudson.plugins.git.BranchSpec".name[0].value = "*/$branchName"
-		
-		// update GIT url
-		root.scm.userRemoteConfigs."hudson.plugins.git.UserRemoteConfig".url[0].value = "$gitUrl"
-		
+	public String processConfig(String entryConfig, ConcreteJob missingJob, String gitUrl) {
+		def root = new XmlParser().parseText(replaceVars(entryConfig, missingJob))
+
+		if(root.scm[0].attribute("class") == "hudson.plugins.cloneworkspace.CloneWorkspaceSCM") {
+                        // Clone Workspace SCM: replacing parentJobName
+                        // FIXME: it would be great if "-build-" would be configurable...
+                        root.scm.parentJobName[0].value = missingJob.jobName.replace("-${missingJob.templateJob.baseJobName}-", "-build-")
+                }
+                else {
+                        // update branch name
+                        root.scm.branches."hudson.plugins.git.BranchSpec".name[0].value = "*/${missingJob.branchName}"
+
+                        // update GIT url
+                        root.scm.userRemoteConfigs."hudson.plugins.git.UserRemoteConfig".url[0].value = "$gitUrl"
+                }
+
 		//update Sonar
 		if (root.publishers."hudson.plugins.sonar.SonarPublisher".branch[0] != null) {
-			root.publishers."hudson.plugins.sonar.SonarPublisher".branch[0].value = "$branchName"
+			root.publishers."hudson.plugins.sonar.SonarPublisher".branch[0].value = "${missingJob.branchName}"
 		}
-		
-		
+
 		//remove template build variable
 		Node startOnCreateParam = findStartOnCreateParameter(root)
 		if (startOnCreateParam) {
 			startOnCreateParam.parent().remove(startOnCreateParam)
 		}
-		
+
 		//check if it was the only parameter - if so, remove the enclosing tag, so the project won't be seen as build with parameters
 		def propertiesNode = root.properties
 		def parameterDefinitionsProperty = propertiesNode."hudson.model.ParametersDefinitionProperty".parameterDefinitions[0]
@@ -116,13 +129,41 @@ class JenkinsApi {
 			root.remove(propertiesNode)
 			new Node(root, 'properties')
 		}
-		
-		
+
 		def writer = new StringWriter()
 		XmlNodePrinter xmlPrinter = new XmlNodePrinter(new PrintWriter(writer))
 		xmlPrinter.setPreserveWhitespace(true)
 		xmlPrinter.print(root)
 		return writer.toString()
+	}
+
+	String replaceVars(String entryConfig, ConcreteJob job) {
+                // Search issue ID, at the end of the branch name
+                def issueMatch = job.branchName =~ /(\d+)$/
+                def releaseMatch = job.branchName =~ /release-(\d+\.\d+\.\d+.*)$/
+                def issueId = ""
+                def releaseVersion = ""
+
+                if(issueMatch) {
+                        issueId = issueMatch[0][1]
+                }
+
+                if(releaseMatch) {
+                        releaseVersion = releaseMatch[0][1]
+                }
+
+                String buildJobName  = job.jobName.replace("-${job.templateJob.baseJobName}-", "-build-")
+                String deployJobName = job.jobName.replace("-${job.templateJob.baseJobName}-", "-deploy-")
+
+                // Replace variables
+                String newConfig = entryConfig.replaceAll('\\$\\{gitflow.jobName\\}', job.jobName)
+                                                .replaceAll('\\$\\{gitflow.branchName\\}', job.branchName)
+                                                .replaceAll('\\$\\{gitflow.templateJobPrefix\\}', job.templateJob.baseJobName)
+                                                .replaceAll('\\$\\{gitflow.templateBranchName\\}', job.templateJob.templateBranchName)
+                                                .replaceAll('\\$\\{gitflow.issueId}', issueId)
+                                                .replaceAll('\\$\\{gitflow.releaseVersion\\}', releaseVersion)
+                                                .replaceAll('\\$\\{gitflow.buildJobName\\}', buildJobName)
+                                                .replaceAll('\\$\\{gitflow.deployJobName\\}', deployJobName)
 	}
 	
 	void startJob(ConcreteJob job) {
